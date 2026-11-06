@@ -55,6 +55,14 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
+import androidx.compose.foundation.Image
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.isSpecified
+import com.nuvio.app.core.ui.FitWideCropTall
+import com.nuvio.app.core.ui.FittedArtworkFillScrim
+import com.nuvio.app.core.ui.fadeFittedArtworkEdges
+import com.nuvio.app.core.ui.isWiderThanBox
+import com.nuvio.app.core.ui.rememberArtworkBackdrop
 import com.nuvio.app.core.ui.heroStretchHeight
 import com.nuvio.app.core.ui.LocalVerticalBarPadding
 import com.nuvio.app.core.ui.ScreenActivityEffect
@@ -221,23 +229,21 @@ fun HomeHeroSection(
                         .heroStretchZoom(stretchPx),
                 ) {
                     visiblePages.forEach { layer ->
-                        AsyncImage(
-                            model = items[layer.itemIndex].banner ?: items[layer.itemIndex].poster,
-                            contentDescription = items[layer.itemIndex].name,
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .graphicsLayer {
-                                    val offset = scrollOffsetPx
-                                    val scrollScale = heroBackgroundScrollScale(offset)
-                                    alpha = layer.visibility
-                                    translationX = -layer.offset * heroWidthPx * HERO_BACKGROUND_PARALLAX
-                                    translationY = heroBackgroundScrollTranslationY(offset)
-                                    scaleX = HERO_BACKGROUND_SCALE * scrollScale
-                                    scaleY = HERO_BACKGROUND_SCALE * scrollScale
-                                },
-                            alignment = if (layout.isTablet) Alignment.TopCenter else Alignment.Center,
-                            contentScale = ContentScale.Crop,
-                        )
+                        key(layer.itemIndex) {
+                            HomeHeroArtworkLayer(
+                                item = items[layer.itemIndex],
+                                isTablet = layout.isTablet,
+                                heroAspect = heroWidthPx / heroHeightPx,
+                                layerModifier = Modifier
+                                    .fillMaxSize()
+                                    .graphicsLayer {
+                                        alpha = layer.visibility
+                                        translationX = -layer.offset * heroWidthPx * HERO_BACKGROUND_PARALLAX
+                                        translationY = heroBackgroundScrollTranslationY(scrollOffsetPx)
+                                    },
+                                scrollScale = { heroBackgroundScrollScale(scrollOffsetPx) },
+                            )
+                        }
                     }
                 }
 
@@ -365,6 +371,73 @@ fun HomeHeroSection(
                 }
             }
         }
+    }
+}
+
+/**
+ * One carousel page's background. On phones the hero is taller than wide, so wide
+ * backdrops are shown at full width over a blurred copy instead of being center-cropped.
+ */
+@Composable
+private fun HomeHeroArtworkLayer(
+    item: MetaPreview,
+    isTablet: Boolean,
+    heroAspect: Float,
+    layerModifier: Modifier,
+    scrollScale: () -> Float,
+) {
+    val imageUrl = item.banner ?: item.poster
+    val fitWideArtwork = !isTablet
+    var imageAspect by remember(imageUrl) { mutableStateOf<Float?>(null) }
+    val showsFullWidth = fitWideArtwork && isWiderThanBox(imageAspect, heroAspect)
+    val blurredFill = rememberArtworkBackdrop(imageUrl = imageUrl, enabled = fitWideArtwork)
+
+    Box(modifier = layerModifier) {
+        if (showsFullWidth && blurredFill != null) {
+            Image(
+                bitmap = blurredFill,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer {
+                        val scale = HERO_BACKGROUND_SCALE * scrollScale()
+                        scaleX = scale
+                        scaleY = scale
+                    }
+                    .drawWithContent {
+                        drawContent()
+                        drawRect(FittedArtworkFillScrim)
+                    },
+            )
+        }
+        AsyncImage(
+            model = imageUrl,
+            contentDescription = item.name,
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer {
+                    // No overscan on fitted artwork, so its full width stays visible.
+                    val scale = (if (showsFullWidth) 1f else HERO_BACKGROUND_SCALE) * scrollScale()
+                    scaleX = scale
+                    scaleY = scale
+                }
+                .then(
+                    if (showsFullWidth) {
+                        Modifier.fadeFittedArtworkEdges(imageAspect ?: heroAspect)
+                    } else {
+                        Modifier
+                    },
+                ),
+            alignment = if (isTablet) Alignment.TopCenter else Alignment.Center,
+            contentScale = if (fitWideArtwork) FitWideCropTall else ContentScale.Crop,
+            onSuccess = { state ->
+                val intrinsic = state.painter.intrinsicSize
+                if (intrinsic.isSpecified && intrinsic.height > 0f) {
+                    imageAspect = intrinsic.width / intrinsic.height
+                }
+            },
+        )
     }
 }
 

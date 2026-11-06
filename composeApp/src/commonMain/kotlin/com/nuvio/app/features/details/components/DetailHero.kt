@@ -51,13 +51,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.graphics.graphicsLayer
 import coil3.compose.AsyncImage
 import androidx.compose.foundation.Image
-import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.draw.drawWithContent
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.geometry.isSpecified
-import androidx.compose.ui.graphics.BlendMode
-import androidx.compose.ui.graphics.CompositingStrategy
-import androidx.compose.ui.layout.ScaleFactor
+import com.nuvio.app.core.ui.FitWideCropTall
+import com.nuvio.app.core.ui.FittedArtworkFillScrim
+import com.nuvio.app.core.ui.fadeFittedArtworkEdges
+import com.nuvio.app.core.ui.isWiderThanBox
 import com.nuvio.app.core.ui.rememberArtworkBackdrop
 import com.nuvio.app.core.ui.featherArtwork
 import com.nuvio.app.core.ui.heroStretchHeight
@@ -140,8 +139,7 @@ fun DetailHero(
                         val heroAspect = with(LocalDensity.current) {
                             maxWidth.toPx() / heroHeight.toPx()
                         }
-                        val showsFullWidth = fitWideArtwork &&
-                            imageAspect?.let { it > heroAspect } == true
+                        val showsFullWidth = fitWideArtwork && isWiderThanBox(imageAspect, heroAspect)
                         val blurredFill = rememberArtworkBackdrop(
                             imageUrl = imageUrl,
                             enabled = fitWideArtwork,
@@ -163,7 +161,7 @@ fun DetailHero(
                                     }
                                     .drawWithContent {
                                         drawContent()
-                                        drawRect(Color.Black.copy(alpha = 0.28f))
+                                        drawRect(FittedArtworkFillScrim)
                                     },
                             )
                         }
@@ -367,40 +365,6 @@ fun DetailHero(
 }
 
 private const val TRAILER_ASPECT_RATIO = 16f / 9f
-
-/**
- * Fits artwork that is wider than the box to the full width (no side crop) and
- * crops artwork that is taller, so portrait posters still fill the hero.
- */
-private val FitWideCropTall = object : ContentScale {
-    override fun computeScaleFactor(srcSize: Size, dstSize: Size): ScaleFactor {
-        val wide = srcSize.width * dstSize.height > dstSize.width * srcSize.height
-        return if (wide) ContentScale.Fit.computeScaleFactor(srcSize, dstSize)
-        else ContentScale.Crop.computeScaleFactor(srcSize, dstSize)
-    }
-}
-
-/** Fades the top and bottom edges of full-width artwork into the blurred fill behind it. */
-private fun Modifier.fadeFittedArtworkEdges(imageAspect: Float): Modifier = graphicsLayer {
-    compositingStrategy = CompositingStrategy.Offscreen
-}.drawWithCache {
-    val drawnHeight = (size.width / imageAspect).coerceAtMost(size.height)
-    val top = (size.height - drawnHeight) / 2f
-    val bottom = top + drawnHeight
-    val fade = drawnHeight * 0.18f
-    val mask = Brush.verticalGradient(
-        (top / size.height) to Color.Transparent,
-        ((top + fade) / size.height) to Color.Black,
-        ((bottom - fade) / size.height) to Color.Black,
-        (bottom / size.height) to Color.Transparent,
-        startY = 0f,
-        endY = size.height,
-    )
-    onDrawWithContent {
-        drawContent()
-        drawRect(mask, blendMode = BlendMode.DstIn)
-    }
-}
 
 private fun detailHeroHeight(maxWidth: Dp, isTablet: Boolean): Dp =
     if (!isTablet) {
