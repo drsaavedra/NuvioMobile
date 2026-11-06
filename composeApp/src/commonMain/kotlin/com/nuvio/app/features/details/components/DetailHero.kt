@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -208,26 +209,53 @@ fun DetailHero(
                         )
                     }
                     if (heroTrailerSourceUrl != null) {
-                        HeroTrailerPlayerSurface(
-                            sourceUrl = heroTrailerSourceUrl,
-                            sourceAudioUrl = heroTrailerSourceAudioUrl,
-                            playWhenReady = heroTrailerPlayWhenReady(),
-                            muted = heroTrailerMuted,
-                            modifier = Modifier
-                                .align(Alignment.TopCenter)
-                                .fillMaxWidth()
-                                .height(heroHeight)
-                                .heroStretchZoom(stretchPx)
-                                .graphicsLayer {
+                        val trailerLayerModifier = Modifier
+                            .align(Alignment.TopCenter)
+                            .fillMaxWidth()
+                            .height(heroHeight)
+                            .heroStretchZoom(stretchPx)
+                        if (isTablet) {
+                            HeroTrailerPlayerSurface(
+                                sourceUrl = heroTrailerSourceUrl,
+                                sourceAudioUrl = heroTrailerSourceAudioUrl,
+                                playWhenReady = heroTrailerPlayWhenReady(),
+                                muted = heroTrailerMuted,
+                                modifier = trailerLayerModifier.graphicsLayer {
                                     alpha = trailerAlpha
                                     translationY = scrollOffset() * 0.5f
                                     scaleX = 1.08f
                                     scaleY = 1.08f
                                 },
-                            onReady = onHeroTrailerReady,
-                            onEnded = onHeroTrailerEnded,
-                            onError = onHeroTrailerError,
-                        )
+                                onReady = onHeroTrailerReady,
+                                onEnded = onHeroTrailerEnded,
+                                onError = onHeroTrailerError,
+                            )
+                        } else {
+                            // Same as the backdrop: on phones the hero is taller than the 16:9
+                            // trailer, so play it full width in a 16:9 band (where the fitted
+                            // backdrop sits) instead of cropping its sides to cover the hero.
+                            Box(
+                                modifier = trailerLayerModifier.graphicsLayer {
+                                    alpha = trailerAlpha
+                                    translationY = scrollOffset() * 0.5f
+                                },
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                HeroTrailerPlayerSurface(
+                                    sourceUrl = heroTrailerSourceUrl,
+                                    sourceAudioUrl = heroTrailerSourceAudioUrl,
+                                    playWhenReady = heroTrailerPlayWhenReady(),
+                                    muted = heroTrailerMuted,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .aspectRatio(TRAILER_ASPECT_RATIO)
+                                        .fadeFittedArtworkEdges(TRAILER_ASPECT_RATIO),
+                                    onReady = onHeroTrailerReady,
+                                    onEnded = onHeroTrailerEnded,
+                                    onError = onHeroTrailerError,
+                                )
+                            }
+                        }
                     }
                 }
                 if (heroTrailerSourceUrl != null) {
@@ -337,6 +365,8 @@ fun DetailHero(
         }
     }
 }
+
+private const val TRAILER_ASPECT_RATIO = 16f / 9f
 
 /**
  * Fits artwork that is wider than the box to the full width (no side crop) and
