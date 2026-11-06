@@ -49,6 +49,15 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.graphics.graphicsLayer
 import coil3.compose.AsyncImage
+import androidx.compose.foundation.Image
+import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.geometry.isSpecified
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.layout.ScaleFactor
+import com.nuvio.app.core.ui.rememberArtworkBackdrop
 import com.nuvio.app.core.ui.featherArtwork
 import com.nuvio.app.core.ui.heroStretchHeight
 import com.nuvio.app.core.ui.heroStretchZoom
@@ -122,6 +131,41 @@ fun DetailHero(
                 ) {
                     val imageUrl = meta.background ?: meta.poster
                     if (imageUrl != null) {
+                        // On phones the hero is a tall portrait box, so center-cropping a
+                        // landscape backdrop hides most of it. Show the whole backdrop at full
+                        // width and fill the rest of the box with a blurred copy instead.
+                        val fitWideArtwork = !isTablet
+                        var imageAspect by remember(imageUrl) { mutableStateOf<Float?>(null) }
+                        val heroAspect = with(LocalDensity.current) {
+                            maxWidth.toPx() / heroHeight.toPx()
+                        }
+                        val showsFullWidth = fitWideArtwork &&
+                            imageAspect?.let { it > heroAspect } == true
+                        val blurredFill = rememberArtworkBackdrop(
+                            imageUrl = imageUrl,
+                            enabled = fitWideArtwork,
+                        )
+                        if (showsFullWidth && blurredFill != null) {
+                            Image(
+                                bitmap = blurredFill,
+                                contentDescription = null,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier
+                                    .align(Alignment.TopCenter)
+                                    .fillMaxWidth()
+                                    .height(heroHeight)
+                                    .heroStretchZoom(stretchPx)
+                                    .graphicsLayer {
+                                        translationY = scrollOffset() * 0.5f
+                                        scaleX = 1.08f
+                                        scaleY = 1.08f
+                                    }
+                                    .drawWithContent {
+                                        drawContent()
+                                        drawRect(Color.Black.copy(alpha = 0.28f))
+                                    },
+                            )
+                        }
                         AsyncImage(
                             model = imageUrl,
                             contentDescription = meta.name,
@@ -132,12 +176,24 @@ fun DetailHero(
                                 .heroStretchZoom(stretchPx)
                                 .graphicsLayer {
                                     translationY = scrollOffset() * 0.5f
-                                    scaleX = 1.08f
-                                    scaleY = 1.08f
-                                },
+                                    val overscan = if (showsFullWidth) 1f else 1.08f
+                                    scaleX = overscan
+                                    scaleY = overscan
+                                }
+                                .then(
+                                    if (showsFullWidth) {
+                                        Modifier.fadeFittedArtworkEdges(imageAspect ?: heroAspect)
+                                    } else {
+                                        Modifier
+                                    },
+                                ),
                             alignment = if (isTablet) Alignment.TopCenter else Alignment.Center,
-                            contentScale = ContentScale.Crop,
+                            contentScale = if (fitWideArtwork) FitWideCropTall else ContentScale.Crop,
                             onSuccess = { state ->
+                                val intrinsic = state.painter.intrinsicSize
+                                if (intrinsic.isSpecified && intrinsic.height > 0f) {
+                                    imageAspect = intrinsic.width / intrinsic.height
+                                }
                                 onBackdropLoaded(
                                     state.painter,
                                     loadedBackdropImageBitmap(state.result),
@@ -279,6 +335,40 @@ fun DetailHero(
                 }
             }
         }
+    }
+}
+
+/**
+ * Fits artwork that is wider than the box to the full width (no side crop) and
+ * crops artwork that is taller, so portrait posters still fill the hero.
+ */
+private val FitWideCropTall = object : ContentScale {
+    override fun computeScaleFactor(srcSize: Size, dstSize: Size): ScaleFactor {
+        val wide = srcSize.width * dstSize.height > dstSize.width * srcSize.height
+        return if (wide) ContentScale.Fit.computeScaleFactor(srcSize, dstSize)
+        else ContentScale.Crop.computeScaleFactor(srcSize, dstSize)
+    }
+}
+
+/** Fades the top and bottom edges of full-width artwork into the blurred fill behind it. */
+private fun Modifier.fadeFittedArtworkEdges(imageAspect: Float): Modifier = graphicsLayer {
+    compositingStrategy = CompositingStrategy.Offscreen
+}.drawWithCache {
+    val drawnHeight = (size.width / imageAspect).coerceAtMost(size.height)
+    val top = (size.height - drawnHeight) / 2f
+    val bottom = top + drawnHeight
+    val fade = drawnHeight * 0.18f
+    val mask = Brush.verticalGradient(
+        (top / size.height) to Color.Transparent,
+        ((top + fade) / size.height) to Color.Black,
+        ((bottom - fade) / size.height) to Color.Black,
+        (bottom / size.height) to Color.Transparent,
+        startY = 0f,
+        endY = size.height,
+    )
+    onDrawWithContent {
+        drawContent()
+        drawRect(mask, blendMode = BlendMode.DstIn)
     }
 }
 
